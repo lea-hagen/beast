@@ -44,7 +44,7 @@ from beast.tools.read_beast_data import (
     get_lnp_grid_vals,
 )
 from beast.tools.compare_spec_type import compare_spec_type
-from beast.tools.run import create_physicsmodel, create_obsmodel
+from beast.tools.run import create_physicsmodel, create_obsmodel, run_fitting
 
 from beast.tests.helpers import (
     download_rename,
@@ -969,7 +969,6 @@ class TestRegressionSuite:
         """
         Test create_obsmodel.py, assuming two subgrids
         """
-        print("running test_create_obsmodel_with_subgrid")
 
         # run create_obsmodel
         create_obsmodel.create_obsmodel(
@@ -990,6 +989,38 @@ class TestRegressionSuite:
             "beast_example_phat_subgrids/beast_example_phat_subgrids_noisemodel.gridsub1.hd5",
         )
 
+    @pytest.mark.usefixtures("setup_run_fitting")
+    def test_run_fitting_no_subgrid(self):
+        """
+        Test run_fitting.py, assuming no subgrids
+        """
+
+        # run create_obsmodel
+        run_fitting.run_fitting(
+            self.settings,
+            use_sd=False,
+            nsubs=self.settings.n_subgrid,
+            nprocs=1,
+            pdf2d_param_list=["Av", "M_ini", "logT"],
+            pdf_max_nbins=100,
+        )
+
+        # check that the stats files are exactly the same
+        table_cache = Table.read(self.stats_fname_cache)
+        table_new = Table.read("{0}/{0}_stats.fits".format(self.settings.project))
+
+        compare_tables(table_cache, table_new)
+
+        # lnp files not checked as they are randomly sparsely sampled
+        #   hence will be different every time the fitting is run
+
+        # check that the pdf1d and pdf2d files are exactly the same
+        compare_fits(
+            self.pdf1d_fname_cache, "{0}/{0}_pdf1d.fits".format(self.settings.project)
+        )
+        compare_fits(
+            self.pdf2d_fname_cache, "{0}/{0}_pdf2d.fits".format(self.settings.project)
+        )
 
 # ###################################################################
 # specific helper functions
@@ -1083,6 +1114,43 @@ def setup_create_obsmodel(request):
     # make a subgrid file name list
     with open("./beast_example_phat_subgrids/subgrid_fnames.txt", "w") as f:
         f.write(dest_list[1] + "\n" + dest_list[2] + "\n")
+
+    # run tests
+    yield
+
+    # remove folders/symlinks
+    # print('teardown for create_obsmodel')
+    if os.path.isdir("./beast_example_phat"):
+        shutil.rmtree("./beast_example_phat")
+    if os.path.isdir("./beast_example_phat_subgrids"):
+        shutil.rmtree("./beast_example_phat_subgrids")
+
+@pytest.fixture(scope="function")
+def setup_run_fitting(request):
+    """
+    Make symlink to files needed for run_fitting test so that they're in
+    the proper folder.  Delete symlinks after run_fitting tests have run.
+    """
+    # print('setting up files for create_obsmodel')
+    # create folders
+    os.mkdir("./beast_example_phat")
+    os.mkdir("./beast_example_phat_subgrids")
+    # make symlinks to SED data
+    source_list = [
+        request.cls.seds_fname_cache,
+        request.cls.noise_trim_fname_cache,
+    ]
+    dest_list = [
+        "./beast_example_phat/beast_example_phat_seds_trim.grid.hd5",
+        "./beast_example_phat/beast_example_phat_noisemodel_trim.grid.hd5",
+        #"./beast_example_phat_subgrids/beast_example_phat_subgrids_seds.gridsub0.hd5",
+        #"./beast_example_phat_subgrids/beast_example_phat_subgrids_seds.gridsub1.hd5",
+    ]
+    for source, dest in zip(source_list, dest_list):
+        os.symlink(os.path.abspath(source), os.path.abspath(dest))
+    # make a subgrid file name list
+    #with open("./beast_example_phat_subgrids/subgrid_fnames.txt", "w") as f:
+    #    f.write(dest_list[1] + "\n" + dest_list[2] + "\n")
 
     # run tests
     yield
